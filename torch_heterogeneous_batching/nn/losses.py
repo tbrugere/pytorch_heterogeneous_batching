@@ -1,3 +1,4 @@
+import torch
 from torch import nn, Tensor
 from torch_heterogeneous_batching.batch import Batch, check_same_batch_size
 
@@ -46,12 +47,10 @@ class BatchGeomLoss(nn.Module):
     """
 
     samples_loss: "geomloss.SamplesLoss"
-    mean_aggregation: aggr.MeanAggregation 
 
     def __init__(self, *samples_loss_args,  **samples_loss_kwargs):
         super().__init__()
         from geomloss import SamplesLoss
-        self.mean_aggregation = aggr.MeanAggregation()
         self.samples_loss = SamplesLoss(*samples_loss_args, **samples_loss_kwargs)
 
     def forward(self, x: Batch, target: Batch):
