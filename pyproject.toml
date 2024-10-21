@@ -10,7 +10,7 @@ readme = "README.md"
 python = "^3.11"
 torch = "^2.5.0"
 torch-scatter = "^2.1.2"
-ml-lib = {git = "https://github.com/tbrugere/ml_lib"}
+ml-lib = {git = "https://github.com/tbrugere/ml_lib", rev="devel"}
 
 
 [build-system]
