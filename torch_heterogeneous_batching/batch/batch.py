@@ -26,8 +26,6 @@ from ml_lib.misc import all_equal
 
 from torch_geometric.utils import segment
 
-from set2graph.utils import SingletonMeta
-
 from .internals import BatchError
 from .indicator import BatchIndicator, BatchIndicatorBase, BatchIndicatorProduct
 
