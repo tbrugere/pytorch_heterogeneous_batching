@@ -1,5 +1,6 @@
 from typing import (Self, Any, get_type_hints, get_origin, Sequence, 
                     overload, NoReturn, Iterator, Annotated, TypeAlias, TypeVar,)
+import torch
 from torch import Tensor
 
 from .internals import OrderIndependent, ptr_from_sizes
