@@ -71,11 +71,13 @@ class BatchIndicatorAutoCacheMixin():
                 setattr(self, x, None)
 
     def is_cached(self, attr: str):
-        t = get_type_hints(self.__class__, include_extras=True)[f"_{attr}"]
+        t = get_type_hints(self.__class__, include_extras=True).get(f"_{attr}")
+        if t is None: return False
         return "BatchIndicatorCached"  in t.__metadata__
 
     def is_order_independent(self, attr: str):
-        t = get_type_hints(self.__class__, include_extras=True)[f"_{attr}"]
+        t = get_type_hints(self.__class__, include_extras=True).get(f"_{attr}")
+        if t is None: return False
         return "OrderIndependent" in t.__metadata__
 
     def __getattribute__(self, attr: str):
