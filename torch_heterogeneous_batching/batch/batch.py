@@ -276,11 +276,11 @@ class Batch:
 
         ########################### check if the function is supported
         if func not in cls.HANDLED_FUNCTIONS:
-            log.warning(f"Function {func} called on a Batch object directly, but not in the supported list")
+            # log.warning(f"Function {func} called on a Batch object directly, but not in the supported list")
             return NotImplemented
         is_handled = cls.HANDLED_FUNCTIONS[func]
         if callable(is_handled) and not is_handled(*args, **kwargs):
-            log.warning(f"Function {func} called on a Batch object directly, but not supported with the given arguments")
+            # log.warning(f"Function {func} called on a Batch object directly, but not supported with the given arguments")
             return NotImplemented
 
         ############################# extract the data from the batches
