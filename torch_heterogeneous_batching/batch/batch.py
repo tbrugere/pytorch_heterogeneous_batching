@@ -247,9 +247,11 @@ class Batch:
     HANDLED_FUNCTIONS: ClassVar[dict[Callable, None|Callable[..., bool]]] = {
         torch.add: None, 
         torch.div: None,
+        torch.sub: None,
+        torch.mul: None, 
+        torch.exp: None,
         F.layer_norm: None, 
         torch.square: None, 
-        torch.sub: None, 
         F.linear: None, 
         F.leaky_relu: None,
         F.relu: None,
@@ -257,7 +259,6 @@ class Batch:
         F.sigmoid: None,
         torch.sigmoid: None,
         torch.gt: None, 
-        torch.mul: None, 
         torch.clamp: None, 
         torch.log: None, 
         }
@@ -324,8 +325,12 @@ class Batch:
         return torch.sub(b, self)#type: ignore
     def __mul__(self, b) -> "Batch":
         return torch.mul(self, b)#type: ignore
+    def __rmul__(self, b) -> "Batch":
+        return torch.mul( b, self)#type: ignore
     def __truediv__(self, b) -> "Batch":
         return torch.div(self, b)#type: ignore
+    def __rtruediv__(self, b) -> "Batch":
+        return torch.div(b, self)#type: ignore
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(data=[...], n_features={self.n_features}, "\
                                   f"indicator={self.indicator})"
