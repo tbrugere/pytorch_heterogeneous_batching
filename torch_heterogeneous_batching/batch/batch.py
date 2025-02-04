@@ -17,17 +17,18 @@ If both are given, they must be consistent.
 from typing import (Literal, Self, Final, Callable, 
                     ClassVar, Any, get_type_hints, get_origin, Sequence, 
                     overload, NoReturn, Iterator)
-from logging import getLogger; log = getLogger(__name__)
 import torch
 from torch import Tensor, LongTensor
 import torch.nn.functional as F
 from dataclasses import dataclass
 from ml_lib.misc import all_equal
 
-from torch_geometric.utils import segment
+from torch_scatter import segment_csr as segment
 
 from .internals import BatchError
 from .indicator import BatchIndicator, BatchIndicatorBase, BatchIndicatorProduct
+
+from logging import getLogger; log = getLogger(__name__)
 
 @dataclass
 class Batch:
@@ -372,7 +373,7 @@ class Batch:
         data = self.data
         if not torch.is_complex(self.data) or torch.is_floating_point(data):
             data = data.to(torch.float)
-        return segment(data, ptr=self.ptr, reduce=reduce)
+        return segment(data, indptr=self.ptr, reduce=reduce)
 
     # aliases
     reduce = segment
