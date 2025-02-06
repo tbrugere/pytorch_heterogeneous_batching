@@ -189,7 +189,7 @@ class BatchIndicator(BatchIndicatorBase, BatchIndicatorAutoCacheMixin):
             return self.n_nodes
         return torch.pow(self.n_nodes, order)
     def _compute_batch(self, order):
-        return torch.cat([i * torch.ones(n_i.item(), dtype=torch.long) for i, n_i in enumerate(self.get_n(order))])#type: ignore
+        return torch.cat([i * torch.ones(n_i.item(), dtype=torch.long) for i, n_i in enumerate(self.get_n(order))]).to(self.device)#type: ignore
     def _compute_ptr(self, order):
         return ptr_from_sizes(self.get_n(order))
     def _compute_diagonal(self):
