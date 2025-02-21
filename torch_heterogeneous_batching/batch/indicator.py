@@ -2,8 +2,9 @@ from typing import (Self, Any, get_type_hints, get_origin, Sequence,
                     overload, NoReturn, Iterator, Annotated, TypeAlias, TypeVar,)
 import torch
 from torch import Tensor
+from ml_lib.misc import all_equal
 
-from .internals import OrderIndependent, ptr_from_sizes
+from .internals import OrderIndependent, ptr_from_sizes 
 
 CachedVar = TypeVar("CachedVar", Tensor|None, dict[int|None, Tensor])
 Cached: TypeAlias = Annotated[CachedVar, "BatchIndicatorCached"]
@@ -27,7 +28,7 @@ class BatchIndicatorBase():
     n_nodes: Tensor
 
     def __init__(self, n_nodes):
-        self.n_nodes = n_nodes
+        self.n_nodes = n_nodes.to(torch.int32)
 
     def get_n_nodes(self) -> Tensor:
         return self.n_nodes
@@ -154,6 +155,7 @@ class BatchIndicator(BatchIndicatorBase, BatchIndicatorAutoCacheMixin):
     """batch[order]: (sum_i n_nodes_i^order) long indicating the batch of each node (optional, will be recomputed otherwise)"""
 
     _ntotal: CachedDict
+    _max_n: CachedDict
 
     _diagonal: CachedOrderIndepTensor = None
     """diagonal: (sum_i n_nodes_i) long indicating the diagonal of each matrix (optional, will be recomputed otherwise)
@@ -175,6 +177,9 @@ class BatchIndicator(BatchIndicatorBase, BatchIndicatorAutoCacheMixin):
         del order
         assert False, "This code should be unreachable (because of the __getattribute__)"
     def get_ntotal(self, order: int|None) -> Tensor:
+        del order
+        assert False, "This code should be unreachable (because of the __getattribute__)"
+    def get_max_n(self, order: int|None) -> Tensor:
         del order
         assert False, "This code should be unreachable (because of the __getattribute__)"
     def get_ptr(self, order: int|None) -> Tensor:
@@ -227,6 +232,8 @@ class BatchIndicator(BatchIndicatorBase, BatchIndicatorAutoCacheMixin):
 
     def _compute_ntotal(self, order):
         return self.get_n(order).sum()
+    def _compute_max_n(self, order):
+        return self.get_n(order).max()
 
     def shapes(self, order: int|None) -> Iterator[tuple[int]]:
         for n in self.get_n(1):
@@ -258,6 +265,23 @@ class BatchIndicator(BatchIndicatorBase, BatchIndicatorAutoCacheMixin):
                 setattr(batch, x, other_value)
         return batch
 
+    def pin_memory(self):
+        def pin_memory(x):
+            if x is None: return
+            if isinstance(x, Tensor): return x.pin_memory()
+            if isinstance(x, dict):
+                return {order: pin_memory(y) for order, y in x.items()}
+            if isinstance(x, tuple):
+                return tuple(pin_memory(y) for y in x)
+            return
+        for x, t in get_type_hints(self).items():
+            if get_origin(t) is dict or t == (Tensor|None) or issubclass(t, Tensor):
+                value  = getattr(self, x)
+                setattr(self, x, pin_memory(value))
+
+        return self
+
+
     @property
     def device(self):
         return self.n_nodes.device
@@ -284,6 +308,7 @@ class BatchIndicatorProduct(BatchIndicator):
     indicators: tuple[BatchIndicator, ...]
 
     def __init__(self, *indicators: BatchIndicator, orders: Sequence[int]|None=None):
+        from .utils import check_same_batch_size # here to avoid circular imports
         check_same_batch_size(*indicators, calling=self)
         self._init_caches()
         self.indicators = indicators

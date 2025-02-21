@@ -87,6 +87,11 @@ class Batch:
         return self.indicator.get_ntotal(self.order)
 
     @property
+    def max_n(self):
+        """this is n.max()"""
+        return self.indicator.get_max_n(self.order)
+
+    @property
     def batch(self):
         """batch[i] is the set/graph/elemnt of the batch to which data[i] belongs"""
         return self.indicator.get_batch(self.order)
@@ -389,4 +394,20 @@ class Batch:
         with the same shape as x where f was applied to each element 
         """
         return self.batch_like(f(self.data))
+
+    def pre_compute_indicator(self) -> None:
+        """Pre-computes some useful values
+
+        Useful to compute everything on CPU before moving the batch to GPU"""
+        # yes this is kind of ugly, I am just calling the properties for side effects
+        self.n_total;
+        self.max_n;
+        self.batch;
+        self.ptr;
+
+
+    def pin_memory(self):
+        self.data = self.data.pin_memory()
+        self.indicator = self.indicator.pin_memory()
+        return self
 

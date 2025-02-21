@@ -1,11 +1,13 @@
 import warnings
 
 from typing import TYPE_CHECKING, Literal
+import torch
 from torch import nn, Tensor
 from torch.nn import functional as F
 from torch_geometric.utils import softmax as pyg_softmax, scatter
 
 from ml_lib.misc import all_equal
+from ml_lib.misc.torch_functions import ShouldBe as should_be
 from ml_lib.models.layers import MLP, MultiInputLinear
 
 if TYPE_CHECKING:
@@ -22,12 +24,14 @@ class SelfAttention(nn.Module):
     key_dim: int
     value_dim: int
     head_value_dim: int
+    use_flash: bool
 
     query_key_value: nn.Linear
     out_proj: nn.Linear|None
 
     def __init__(self, input_dim, value_dim=None, key_dim=None, n_heads=1, 
-                 use_out_proj=True):
+                 use_out_proj=True, 
+                 use_flash = True):
         """
         Computes self-attention on batched 
 
@@ -38,6 +42,7 @@ class SelfAttention(nn.Module):
 
         """
         super().__init__()
+        dtype_float = {"dtype": torch.float16} if use_flash else {}
         self.n_heads = n_heads
         self.input_dim = input_dim
         value_dim = value_dim or input_dim
@@ -46,19 +51,53 @@ class SelfAttention(nn.Module):
         self.key_dim = key_dim
         self.value_dim = value_dim
         self.head_value_dim = value_dim // n_heads
-        self.query_key_value = nn.Linear(input_dim, n_heads * (2 * key_dim  + self.head_value_dim))
-        if use_out_proj: self.out_proj = nn.Linear(value_dim, value_dim)
+        self.query_key_value = nn.Linear(input_dim, 
+            n_heads * (2 * key_dim  + self.head_value_dim), **dtype_float)
+        if use_out_proj: self.out_proj = nn.Linear(value_dim, value_dim, **dtype_float)
         else: self.out_proj = None
+        self.use_flash = use_flash
 
 
     def forward(self, x: Batch):
         # import pdb; pdb.set_trace()
-        total_n_nodes = x.data.shape[0]
         assert x.order == 1
+        use_flash = getattr(self, "use_flash", 
+                            self.key_dim == self.head_value_dim)
+        if use_flash: 
+            x_device = x.map(lambda y: y.to(torch.float16))
+        else: x_device = x
+        qkv = self.query_key_value(x_device).data
+        if use_flash: 
+            attention_results = self.flash_self_attention(qkv, x)
+        else: 
+            attention_results = self.naive_self_attention(qkv, x)
+        if self.out_proj is not None:
+            attention_results = attention_results.map(self.out_proj)
+        attention_results = attention_results.map(lambda y: y.to(x.data.device))
+        return attention_results
+
+    def flash_self_attention(self, qkv, x):
+            assert self.key_dim == self.head_value_dim
+            from flash_attn import flash_attn_varlen_qkvpacked_func
+            n, _ = qkv.shape
+            assert n == x.data.shape[0]
+            qkv = qkv.reshape(n, 3, self.n_heads, self.key_dim,) 
+            attention_results = flash_attn_varlen_qkvpacked_func(
+                qkv, 
+                cu_seqlens=x.ptr.to(torch.int32), 
+                max_seqlen=x.max_n, 
+                causal=False, 
+                    )   <~~~~~ should_be(n, self.n_heads, self.head_value_dim)
+            attention_results = attention_results.contiguous().reshape(n, self.value_dim)
+            return x.batch_like(attention_results)
+
+    def naive_self_attention(self, qkv, x):
+        """x only given for its indicator"""
+        total_n_nodes = x.data.shape[0]
         indicator = x.indicator
         grid_x, grid_y = indicator.grid()
         n_edges, = grid_x.shape
-        qkv = self.query_key_value(x).data
+
         query, key, value = self.split_qkv(qkv)
         query_grid_x = query[grid_x] # n_edges, n_heads, query_dim
         key_grid_y = key[grid_y]  # n_edges, n_heads, query_dim
@@ -78,8 +117,6 @@ class SelfAttention(nn.Module):
 
         attention_results = scatter(weighted_values_concat, index=grid_x, reduce="sum", dim_size=total_n_nodes) #n_nodes, value_dim
         attention_results = Batch.from_other(attention_results, x)
-        if self.out_proj is not None:
-            attention_results = attention_results.map(self.out_proj)
         return attention_results
 
     def split_qkv(self, qkv: Tensor):
@@ -101,6 +138,7 @@ class SelfAttention(nn.Module):
         # query: n, n_heads, query_dim
         # value: n, n_heads, head_value_dim
         return query, key, value
+
 
 class TransformerBlockBase(nn.Module):
     """implement the transformer block residual connections"""
@@ -174,15 +212,22 @@ class TransformerFeedForwardBlockWithGlobalEmbedding(TransformerFeedForwardBlock
         y = x.batch_like(y)
         return y
 
-class TransformerFullBlock(nn.Sequential):
+class TransformerFullBlock(nn.Module):
     def __init__(self, input_dim, key_dim=None, n_heads=1, n_layers=3, hidden_dim=512):
         super().__init__()
         self.input_dim = input_dim
         self.n_heads = n_heads
         self.n_layers = n_layers
 
-        self.add_module(f"attention", TransformerBlock(input_dim, key_dim, n_heads))
-        self.add_module(f"feed_forward", TransformerFeedForwardBlock(input_dim, hidden_dim))
+        self.attention = TransformerBlock(input_dim, key_dim, n_heads)
+        self.feed_forward = TransformerFeedForwardBlock(input_dim, hidden_dim)
+
+    def forward(self, x):
+        with torch.autograd.profiler.record_function("attention"):
+            y = self.attention(x)
+        with torch.autograd.profiler.record_function("feed_forward"):
+            y = self.feed_forward(x)
+        return y
 
 class Transformer(nn.Sequential):
     """decoder-only Transformer
